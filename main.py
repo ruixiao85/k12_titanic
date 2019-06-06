@@ -78,6 +78,16 @@ def vecfreqword(df,var,features):
 
 	return df
 
+def diagnose(df):
+	print(f"dataframe shape {df.shape}")
+	print(df.head())
+	# print(df.dtypes)
+	for column in df.columns:
+		idx_null=df[column].isnull()
+		print(f' [{column:<12}] unique: {len(df[column].unique()):>5} missing: {idx_null.sum():>5} [{df[column].dtype}]')
+		if idx_null.sum()>0:
+			print(df[idx_null].head())
+
 
 def feature_prep(df):
 	df=vecfreqword(df,"Name",8)
@@ -103,7 +113,8 @@ def feature_prep(df):
 		# "AgeKnown", "CabinValue","CabinLetter",
 		])
 
-print(f"train shape {train_x.shape} test shape {test_x.shape}")
+diagnose(train_x)
+
 x=pd.concat([train_x,test_x],axis=0,keys=['train','test'])
 x=feature_prep(x)
 train_x=x.loc['train']
@@ -111,13 +122,10 @@ test_x=x.loc['test']
 
 print(train_x.head())
 
-print(train_x.dtypes)
-print(train_y.dtypes)
-
 x_train,x_test,y_train,y_test = model_selection.train_test_split(
 	train_x,column_or_1d(train_y),
 	test_size=0.25,random_state=0)
-# do NLP for Name
+
 
 scoring ='accuracy'
 models = [
