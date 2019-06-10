@@ -9,6 +9,7 @@ from keras.callbacks import EarlyStopping
 from keras.layers import Dense
 from keras.optimizers import nadam,sgd,adam
 from keras.wrappers.scikit_learn import KerasRegressor
+from scipy.special._ufuncs import boxcox1p
 from sklearn import model_selection
 from sklearn.model_selection import GridSearchCV
 from sklearn.pipeline import make_pipeline
@@ -23,6 +24,7 @@ from sklearn.neural_network import MLPRegressor
 from sklearn.ensemble import RandomForestRegressor,GradientBoostingRegressor,AdaBoostRegressor
 
 train=pd.read_csv("train.csv",index_col=0)
+train=train[train['GrLivArea']<4000] # outliers
 test_x=pd.read_csv("test.csv",index_col=0)
 
 def transe(x):
@@ -253,31 +255,33 @@ test_x=x.loc['test']
 # 	test_size=0.25,random_state=0)
 diagnose(train_x)
 
-inlayer=layers.Input(shape=(train_x.shape[1],))
-x=layers.Dense(768,activation='tanh')(inlayer)
-x=layers.Dense(360,activation='tanh')(x)
-x=layers.Dense(1,kernel_initializer='normal')(x)
-model=keras.Model(inputs=inlayer, outputs=x)
+run_keras=True
+if run_keras:
+	inlayer=layers.Input(shape=(train_x.shape[1],))
+	x=layers.Dense(768,activation='tanh')(inlayer)
+	x=layers.Dense(360,activation='tanh')(x)
+	x=layers.Dense(1,kernel_initializer='normal')(x)
+	model=keras.Model(inputs=inlayer, outputs=x)
 
-# y=layers.Dense(350,activation='elu')(inlayer)
-# y=layers.Dense(200,activation='elu')(y)
-# y=layers.Dense(128,activation='elu')(y)
-# m =layers.concatenate([x, y])
-# m=layers.Dense(350,activation='tanh')(m)
-# m=layers.Dense(768,activation='tanh')(m)
-# m=layers.Dense(768,activation='tanh')(m)
-# m=layers.Dense(1,kernel_initializer='normal')(m)
-# model=keras.Model(inputs=inlayer, outputs=m)
+	# y=layers.Dense(350,activation='elu')(inlayer)
+	# y=layers.Dense(200,activation='elu')(y)
+	# y=layers.Dense(128,activation='elu')(y)
+	# m =layers.concatenate([x, y])
+	# m=layers.Dense(350,activation='tanh')(m)
+	# m=layers.Dense(768,activation='tanh')(m)
+	# m=layers.Dense(768,activation='tanh')(m)
+	# m=layers.Dense(1,kernel_initializer='normal')(m)
+	# model=keras.Model(inputs=inlayer, outputs=m)
 
-print(model.summary())
+	print(model.summary())
 
-model.compile(loss='mean_squared_error',optimizer=nadam(lr=5e-5),metrics=['mse'])
-best_model=model.fit(np.array(train_x),column_or_1d(train_y),epochs=200,batch_size=16,validation_split=0.2,callbacks=[
-EarlyStopping(monitor='val_loss',min_delta=0,patience=8,verbose=1,mode='auto',baseline=None,restore_best_weights=True)
-])
-test_y=pd.DataFrame(model.predict(test_x),index=test_x.index,columns=["SalePrice"])
-test_y=reverse(test_y)
-test_y.to_csv(f"submission_{type(model).__name__}.csv",index=True,index_label="Id")
+	model.compile(loss='mean_squared_error',optimizer=nadam(lr=5e-5),metrics=['mse'])
+	best_model=model.fit(np.array(train_x),column_or_1d(train_y),epochs=200,batch_size=16,validation_split=0.2,callbacks=[
+	EarlyStopping(monitor='val_loss',min_delta=0,patience=8,verbose=1,mode='auto',baseline=None,restore_best_weights=True)
+	])
+	test_y=pd.DataFrame(model.predict(test_x),index=test_x.index,columns=["SalePrice"])
+	test_y=reverse(test_y)
+	test_y.to_csv(f"submission_{type(model).__name__}.csv",index=True,index_label="Id")
 
 scoring='neg_mean_squared_error'
 models=[
@@ -311,3 +315,23 @@ print(f"Average Score: {np.mean(sum_score):.4f}")
 n_result=len(sum_score)
 sum_result.div(n_result).round().astype(np.int32).to_csv(f"submission_sum{n_result}.csv",index=True,index_label="Id")
 
+# note that we compute only oof (mode='oof').
+# S_train, _ =StackingCVRegressor(models_L1,
+#                       X_train, y_train, None,
+#                       regression=True,
+#                       mode='oof',
+#                       random_state=0,
+#                       verbose=2)
+
+# model_L2 = LinearRegression()
+# _ = model_L2.fit(S_train, y_train)
+# # save model in file if you need
+# [4] Then new test set (X_test_new) comes. We load our 1st level models and predict new test set to get stacked features (S_test_new):
+#
+# y_pred_L1_0 = model_L1_0.predict(X_test_new)
+# y_pred_L1_1 = model_L1_1.predict(X_test_new)
+# S_test_new = np.c_[y_pred_L1_0, y_pred_L1_1]
+# [5] Then we load our 2nd level model and predict S_test_new to get final prediction:
+#
+# y_pred_new = model_L2.predict(S_test_new)
+# [6] Each time new test set comes we just repeat [4] and [5]
