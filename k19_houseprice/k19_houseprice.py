@@ -3,12 +3,12 @@ import numpy as np  # linear algebra
 import pandas as pd  # data processing, CSV file I/O (e.g. pd.read_csv)
 import re
 
-import sklearn
 from keras import Sequential,layers
 from keras.callbacks import EarlyStopping
 from keras.layers import Dense
 from keras.optimizers import nadam,sgd,adam
 from keras.wrappers.scikit_learn import KerasRegressor
+import sklearn
 from scipy.special._ufuncs import boxcox1p
 from sklearn import model_selection
 from sklearn.model_selection import GridSearchCV
@@ -18,10 +18,12 @@ from sklearn.utils import column_or_1d
 from sklearn.feature_extraction.text import CountVectorizer,TfidfVectorizer
 from sklearn.neighbors import KNeighborsRegressor
 from sklearn.tree import DecisionTreeRegressor
-from sklearn.linear_model import LinearRegression,Lasso
+from sklearn.linear_model import LinearRegression,Lasso,Ridge
 from sklearn.svm import SVR
 from sklearn.neural_network import MLPRegressor
-from sklearn.ensemble import RandomForestRegressor,GradientBoostingRegressor,AdaBoostRegressor
+from xgboost import XGBRegressor
+from vecstack import stacking
+from sklearn.ensemble import RandomForestRegressor,GradientBoostingRegressor,AdaBoostRegressor,ExtraTreesRegressor
 
 train=pd.read_csv("train.csv",index_col=0)
 train=train[train['GrLivArea']<4000] # outliers
@@ -255,20 +257,21 @@ test_x=x.loc['test']
 # 	test_size=0.25,random_state=0)
 diagnose(train_x)
 
-run_keras=True
+run_keras=False
 if run_keras:
 	inlayer=layers.Input(shape=(train_x.shape[1],))
-	x=layers.Dense(768,activation='tanh')(inlayer)
-	x=layers.Dense(360,activation='tanh')(x)
+	x=layers.Dense(1024,activation='tanh')(inlayer)
+	x=layers.Dense(768,activation='tanh')(x)
+	# x=layers.Dense(384,activation='tanh')(x)
 	x=layers.Dense(1,kernel_initializer='normal')(x)
 	model=keras.Model(inputs=inlayer, outputs=x)
 
-	# y=layers.Dense(350,activation='elu')(inlayer)
-	# y=layers.Dense(200,activation='elu')(y)
-	# y=layers.Dense(128,activation='elu')(y)
+	# y=layers.Dense(300,activation='tanh')(inlayer)
+	# y=layers.Dense(160,activation='tanh')(y)
+	# y=layers.Dense(70,activation='tanh')(y)
 	# m =layers.concatenate([x, y])
 	# m=layers.Dense(350,activation='tanh')(m)
-	# m=layers.Dense(768,activation='tanh')(m)
+	# m=layers.Dense(350,activation='tanh')(m)
 	# m=layers.Dense(768,activation='tanh')(m)
 	# m=layers.Dense(1,kernel_initializer='normal')(m)
 	# model=keras.Model(inputs=inlayer, outputs=m)
@@ -276,44 +279,59 @@ if run_keras:
 	print(model.summary())
 
 	model.compile(loss='mean_squared_error',optimizer=nadam(lr=5e-5),metrics=['mse'])
-	best_model=model.fit(np.array(train_x),column_or_1d(train_y),epochs=200,batch_size=16,validation_split=0.2,callbacks=[
-	EarlyStopping(monitor='val_loss',min_delta=0,patience=8,verbose=1,mode='auto',baseline=None,restore_best_weights=True)
+	best_model=model.fit(np.array(train_x),column_or_1d(train_y),epochs=500,batch_size=32,validation_split=0.2,callbacks=[
+	EarlyStopping(monitor='val_loss',min_delta=0,patience=16,verbose=1,mode='auto',baseline=None,restore_best_weights=True)
 	])
 	test_y=pd.DataFrame(model.predict(test_x),index=test_x.index,columns=["SalePrice"])
 	test_y=reverse(test_y)
 	test_y.to_csv(f"submission_{type(model).__name__}.csv",index=True,index_label="Id")
 
-scoring='neg_mean_squared_error'
-models=[
-	# DecisionTreeRegressor(),
-	# KNeighborsRegressor(),
-	# GradientBoostingRegressor(),
-	# AdaBoostRegressor(),
-	Lasso(alpha=0.001, copy_X=True, fit_intercept=True, max_iter=1000,
-   normalize=False, positive=False, precompute=False, random_state=1,
-   selection='cyclic', tol=0.0001, warm_start=False),
-	RandomForestRegressor(n_estimators=100),
-	SVR(gamma='auto'),
-	MLPRegressor(hidden_layer_sizes=(512),activation='tanh',max_iter=800,early_stopping=True,learning_rate_init=0.001,learning_rate='adaptive'),
-	# MLPRegressor(hidden_layer_sizes=(512,384),activation='tanh',max_iter=800,early_stopping=True,learning_rate_init=0.01,learning_rate='adaptive'),
-]
-sum_score=[]
-sum_result=None
-for model in models:
-	kfold=model_selection.KFold(n_splits=5,random_state=6)  # seed
-	# cv_results=model_selection.cross_val_score(model,x_train,y_train,cv=kfold,scoring=scoring)
-	cv_results=model_selection.cross_val_score(model,train_x,column_or_1d(train_y),cv=kfold,scoring=scoring)
-	cv_results=np.sqrt(-1*cv_results)
-	sum_score.append(cv_results)
-	print(f"{type(model).__name__} : {cv_results.mean():.4f} ({cv_results.std():.4f})")
-	best_model=model.fit(train_x,column_or_1d(train_y))
-	test_y=pd.DataFrame(best_model.predict(test_x),index=test_x.index,columns=["SalePrice"])
+run_sklearn=True
+if run_sklearn:
+	scoring='neg_mean_squared_error'
+	models=[
+		# DecisionTreeRegressor(),
+		# KNeighborsRegressor(),
+		# GradientBoostingRegressor(),
+		# AdaBoostRegressor(),
+		Lasso(alpha=0.001, copy_X=True, fit_intercept=True, max_iter=1000,
+	   normalize=False, positive=False, precompute=False, random_state=1,
+	   selection='cyclic', tol=0.0001, warm_start=False),
+		RandomForestRegressor(n_estimators=100),
+		# ExtraTreesRegressor(),
+		# XGBRegressor(),
+		SVR(gamma='auto'),
+		Ridge(),
+		# MLPRegressor(hidden_layer_sizes=(512),activation='tanh',max_iter=800,early_stopping=True,learning_rate_init=0.001,learning_rate='adaptive'),
+		# MLPRegressor(hidden_layer_sizes=(512,384),activation='tanh',max_iter=800,early_stopping=True,learning_rate_init=0.01,learning_rate='adaptive'),
+	]
+	sum_score=[]
+	sum_result=None
+	for model in models:
+		kfold=model_selection.KFold(n_splits=5,random_state=6)  # seed
+		# cv_results=model_selection.cross_val_score(model,x_train,y_train,cv=kfold,scoring=scoring)
+		cv_results=model_selection.cross_val_score(model,train_x,column_or_1d(train_y),cv=kfold,scoring=scoring)
+		cv_results=np.sqrt(-1*cv_results)
+		sum_score.append(cv_results)
+		print(f"{type(model).__name__} : {cv_results.mean():.4f} ({cv_results.std():.4f})")
+		best_model=model.fit(train_x,column_or_1d(train_y))
+		test_y=pd.DataFrame(best_model.predict(test_x),index=test_x.index,columns=["SalePrice"])
+		test_y=reverse(test_y)
+		sum_result=test_y if sum_result is None else sum_result.add(test_y)
+		test_y.to_csv(f"submission_{type(model).__name__}.csv",index=True,index_label="Id")
+	print(f"Average Score: {np.mean(sum_score):.4f}")
+	n_result=len(sum_score)
+	sum_result.div(n_result).round().astype(np.int32).to_csv(f"submission_sum{n_result}.csv",index=True,index_label="Id")
+
+	# https://www.kaggle.com/c/allstate-claims-severity/discussion/25743
+	S_1_train, S_1_test = stacking(models, train_x,column_or_1d(train_y), test_x, regression = True, verbose = 2)
+	# S_2_train,S_2_test=stacking([Ridge()],S_1_train,column_or_1d(train_y),S_1_test,regression=True,verbose=2)
+	model=XGBRegressor(seed=0,nthread=-1,learning_rate=0.1,n_estimators=100,max_depth=3)
+	model=model.fit(S_1_train,column_or_1d(train_y))
+	test_y=model.predict(S_1_test)
+	test_y=pd.DataFrame(test_y,index=test_x.index,columns=["SalePrice"])
 	test_y=reverse(test_y)
-	sum_result=test_y if sum_result is None else sum_result.add(test_y)
-	test_y.to_csv(f"submission_{type(model).__name__}.csv",index=True,index_label="Id")
-print(f"Average Score: {np.mean(sum_score):.4f}")
-n_result=len(sum_score)
-sum_result.div(n_result).round().astype(np.int32).to_csv(f"submission_sum{n_result}.csv",index=True,index_label="Id")
+	test_y.to_csv(f"submission_stacking.csv",index=True,index_label="Id")
 
 # note that we compute only oof (mode='oof').
 # S_train, _ =StackingCVRegressor(models_L1,
@@ -335,3 +353,4 @@ sum_result.div(n_result).round().astype(np.int32).to_csv(f"submission_sum{n_resu
 #
 # y_pred_new = model_L2.predict(S_test_new)
 # [6] Each time new test set comes we just repeat [4] and [5]
+
